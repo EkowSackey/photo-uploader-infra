@@ -1,0 +1,222 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Root stack for the fotos photo gallery — orchestrates all nested stacks.
+  Deploy via CloudFormation GitSync linked to the infra repository.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: prod
+    Description: Prefix for all resource names and CloudFormation exports
+
+  TemplatesBucket:
+    Type: String
+    Description: S3 bucket name where nested templates are uploaded
+
+  TemplatesPrefix:
+    Type: String
+    Default: templates
+    Description: S3 key prefix under which templates are stored
+
+  AppName:
+    Type: String
+    Default: fotos
+    Description: Application name used in resource naming
+
+  GitHubOrg:
+    Type: String
+    Description: GitHub organisation or username for OIDC trust policy
+
+  GitHubRepo:
+    Type: String
+    Default: photo-uploader-app
+    Description: GitHub application repository name for OIDC trust policy
+
+  CreateOIDCProvider:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Set false if a GitHub OIDC provider already exists in this account
+
+Resources:
+
+  VPCStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}/vpc.yml'
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: !Ref AppName
+
+  S3CloudFrontStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}/s3-cloudfront.yml'
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: !Ref AppName
+
+  ECRStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}/ecr.yml'
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        AppName: !Ref AppName
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: !Ref AppName
+
+  SecurityGroupsStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: VPCStack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}/security-groups.yml'
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        VpcId: !GetAtt VPCStack.Outputs.VpcId
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: !Ref AppName
+
+  IAMStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: S3CloudFrontStack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}/iam.yml'
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        PhotosBucketArn: !GetAtt S3CloudFrontStack.Outputs.PhotosBucketArn
+        GitHubOrg: !Ref GitHubOrg
+        GitHubRepo: !Ref GitHubRepo
+        CreateOIDCProvider: !Ref CreateOIDCProvider
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: !Ref AppName
+
+  RDSStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - VPCStack
+      - SecurityGroupsStack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}/rds.yml'
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        DBSubnet1Id: !GetAtt VPCStack.Outputs.DBSubnet1Id
+        DBSubnet2Id: !GetAtt VPCStack.Outputs.DBSubnet2Id
+        RdsSgId: !GetAtt SecurityGroupsStack.Outputs.RdsSgId
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: !Ref AppName
+
+  ECSStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - VPCStack
+      - SecurityGroupsStack
+      - IAMStack
+      - RDSStack
+      - ECRStack
+      - S3CloudFrontStack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}/ecs.yml'
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        AppName: !Ref AppName
+        VpcId: !GetAtt VPCStack.Outputs.VpcId
+        PublicSubnet1Id: !GetAtt VPCStack.Outputs.PublicSubnet1Id
+        PublicSubnet2Id: !GetAtt VPCStack.Outputs.PublicSubnet2Id
+        PrivateSubnet1Id: !GetAtt VPCStack.Outputs.PrivateSubnet1Id
+        PrivateSubnet2Id: !GetAtt VPCStack.Outputs.PrivateSubnet2Id
+        AlbSgId: !GetAtt SecurityGroupsStack.Outputs.AlbSgId
+        EcsSgId: !GetAtt SecurityGroupsStack.Outputs.EcsSgId
+        EcsTaskExecutionRoleArn: !GetAtt IAMStack.Outputs.EcsTaskExecutionRoleArn
+        EcsTaskRoleArn: !GetAtt IAMStack.Outputs.EcsTaskRoleArn
+        ECRRepositoryUri: !GetAtt ECRStack.Outputs.ECRRepositoryUri
+        DBEndpoint: !GetAtt RDSStack.Outputs.DBEndpoint
+        DBPort: !GetAtt RDSStack.Outputs.DBPort
+        DBName: !GetAtt RDSStack.Outputs.DBName
+        DBSecretArn: !GetAtt RDSStack.Outputs.DBSecretArn
+        PhotosBucketName: !GetAtt S3CloudFrontStack.Outputs.PhotosBucketName
+        CloudFrontDomainName: !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: !Ref AppName
+
+  AutoScalingStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: ECSStack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}/autoscaling.yml'
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        ClusterName: !GetAtt ECSStack.Outputs.ClusterName
+        ServiceName: !GetAtt ECSStack.Outputs.ServiceName
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: !Ref AppName
+
+  PipelineStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - ECSStack
+      - ECRStack
+      - IAMStack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}/pipeline.yml'
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        AppName: !Ref AppName
+        ECRRepositoryName: !GetAtt ECRStack.Outputs.ECRRepositoryName
+        ClusterName: !GetAtt ECSStack.Outputs.ClusterName
+        ServiceName: !GetAtt ECSStack.Outputs.ServiceName
+        TargetGroupBlueName: !GetAtt ECSStack.Outputs.TargetGroupBlueName
+        TargetGroupGreenName: !GetAtt ECSStack.Outputs.TargetGroupGreenName
+        ALBListenerProdArn: !GetAtt ECSStack.Outputs.ALBListenerProdArn
+        ALBListenerTestArn: !GetAtt ECSStack.Outputs.ALBListenerTestArn
+        CodeDeployRoleArn: !GetAtt IAMStack.Outputs.CodeDeployRoleArn
+        CodePipelineRoleArn: !GetAtt IAMStack.Outputs.CodePipelineRoleArn
+        EventBridgeRoleArn: !GetAtt IAMStack.Outputs.EventBridgeRoleArn
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: !Ref AppName
+
+Outputs:
+  ALBDNSName:
+    Description: Application Load Balancer DNS name
+    Value: !GetAtt ECSStack.Outputs.ALBDNSName
+
+  ECRRepositoryUri:
+    Description: ECR repository URI
+    Value: !GetAtt ECRStack.Outputs.ECRRepositoryUri
+
+  GitHubActionsRoleArn:
+    Description: IAM role ARN for GitHub Actions OIDC — set as AWS_ROLE_ARN secret
+    Value: !GetAtt IAMStack.Outputs.GitHubActionsRoleArn
+
+  CloudFrontDomainName:
+    Description: CloudFront distribution domain
+    Value: !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName

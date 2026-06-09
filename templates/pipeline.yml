@@ -1,0 +1,245 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CI/CD pipeline: S3 artifacts bucket, CodeDeploy application and deployment
+  group for ECS blue/green, CodePipeline with ECR + S3 sources and
+  CodeDeployToECS deploy stage, and an EventBridge rule that triggers the
+  pipeline whenever a new image is pushed to ECR.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Environment name prefix for resource naming
+
+  AppName:
+    Type: String
+    Description: Application name
+    Default: fotos
+
+  ECRRepositoryName:
+    Type: String
+    Description: ECR repository name
+
+  ClusterName:
+    Type: String
+    Description: ECS cluster name
+
+  ServiceName:
+    Type: String
+    Description: ECS service name
+
+  TargetGroupBlueName:
+    Type: String
+    Description: Blue target group name
+
+  TargetGroupGreenName:
+    Type: String
+    Description: Green target group name
+
+  ALBListenerProdArn:
+    Type: String
+    Description: Production ALB listener ARN
+
+  ALBListenerTestArn:
+    Type: String
+    Description: Test ALB listener ARN
+
+  CodeDeployRoleArn:
+    Type: String
+    Description: CodeDeploy IAM role ARN
+
+  CodePipelineRoleArn:
+    Type: String
+    Description: CodePipeline IAM role ARN
+
+  EventBridgeRoleArn:
+    Type: String
+    Description: EventBridge IAM role ARN
+
+Resources:
+
+  # ── Artifacts S3 Bucket ────────────────────────────────────────────────────
+  ArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${EnvironmentName}-pipeline-artifacts-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireOldArtifacts
+            Status: Enabled
+            ExpirationInDays: 30
+            NoncurrentVersionExpirationInDays: 7
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: fotos
+
+  # ── CodeDeploy Application ─────────────────────────────────────────────────
+  CodeDeployApplication:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ApplicationName: !Sub '${EnvironmentName}-${AppName}-app'
+      ComputePlatform: ECS
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: fotos
+
+  # ── CodeDeploy Deployment Group ────────────────────────────────────────────
+  CodeDeployDeploymentGroup:
+    Type: AWS::CodeDeploy::DeploymentGroup
+    Properties:
+      ApplicationName: !Ref CodeDeployApplication
+      DeploymentGroupName: !Sub '${EnvironmentName}-${AppName}-dg'
+      ServiceRoleArn: !Ref CodeDeployRoleArn
+      DeploymentConfigName: CodeDeployDefault.ECSAllAtOnce
+      DeploymentStyle:
+        DeploymentType: BLUE_GREEN
+        DeploymentOption: WITH_TRAFFIC_CONTROL
+      BlueGreenDeploymentConfiguration:
+        TerminateBlueInstancesOnDeploymentSuccess:
+          Action: TERMINATE
+          TerminationWaitTimeInMinutes: 5
+        DeploymentReadyOption:
+          ActionOnTimeout: CONTINUE_DEPLOYMENT
+          WaitTimeInMinutes: 0
+      ECSServices:
+        - ClusterName: !Ref ClusterName
+          ServiceName: !Ref ServiceName
+      LoadBalancerInfo:
+        TargetGroupPairInfoList:
+          - ProdTrafficRoute:
+              ListenerArns:
+                - !Ref ALBListenerProdArn
+            TestTrafficRoute:
+              ListenerArns:
+                - !Ref ALBListenerTestArn
+            TargetGroups:
+              - Name: !Ref TargetGroupBlueName
+              - Name: !Ref TargetGroupGreenName
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: fotos
+
+  # ── CodePipeline ───────────────────────────────────────────────────────────
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub '${EnvironmentName}-${AppName}-pipeline'
+      RoleArn: !Ref CodePipelineRoleArn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactsBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: ECR_Image
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: ECR
+                Version: '1'
+              Configuration:
+                RepositoryName: !Ref ECRRepositoryName
+                ImageTag: latest
+              OutputArtifacts:
+                - Name: ECRImageArtifact
+              RunOrder: 1
+            - Name: Deploy_Bundle
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: S3
+                Version: '1'
+              Configuration:
+                S3Bucket: !Ref ArtifactsBucket
+                S3ObjectKey: deploy-bundle/bundle.zip
+                PollForSourceChanges: 'false'
+              OutputArtifacts:
+                - Name: DeployBundleArtifact
+              RunOrder: 1
+        - Name: Deploy
+          Actions:
+            - Name: BlueGreenDeploy
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CodeDeployToECS
+                Version: '1'
+              Configuration:
+                ApplicationName: !Ref CodeDeployApplication
+                DeploymentGroupName: !Ref CodeDeployDeploymentGroup
+                TaskDefinitionTemplateArtifact: DeployBundleArtifact
+                TaskDefinitionTemplatePath: taskdef.json
+                AppSpecTemplateArtifact: DeployBundleArtifact
+                AppSpecTemplatePath: appspec.yaml
+                Image1ArtifactName: ECRImageArtifact
+                Image1ContainerName: app
+              InputArtifacts:
+                - Name: ECRImageArtifact
+                - Name: DeployBundleArtifact
+              RunOrder: 1
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: fotos
+
+  # ── EventBridge Rule: ECR PushImage → trigger pipeline ────────────────────
+  ECRPushEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${EnvironmentName}-${AppName}-ecr-push'
+      Description: Trigger CodePipeline when a new image is pushed to ECR
+      EventPattern:
+        source:
+          - aws.ecr
+        detail-type:
+          - ECR Image Action
+        detail:
+          action-type:
+            - PUSH
+          result:
+            - SUCCESS
+          repository-name:
+            - !Ref ECRRepositoryName
+          image-tag:
+            - latest
+      State: ENABLED
+      Targets:
+        - Id: TriggerPipeline
+          Arn: !Sub 'arn:${AWS::Partition}:codepipeline:${AWS::Region}:${AWS::AccountId}:${Pipeline}'
+          RoleArn: !Ref EventBridgeRoleArn
+
+Outputs:
+  ArtifactsBucketName:
+    Description: Pipeline artifacts S3 bucket name
+    Value: !Ref ArtifactsBucket
+    Export:
+      Name: !Sub '${EnvironmentName}-ArtifactsBucketName'
+
+  CodeDeployAppName:
+    Description: CodeDeploy application name
+    Value: !Ref CodeDeployApplication
+    Export:
+      Name: !Sub '${EnvironmentName}-CodeDeployAppName'
+
+  PipelineName:
+    Description: CodePipeline name
+    Value: !Ref Pipeline
+    Export:
+      Name: !Sub '${EnvironmentName}-PipelineName'

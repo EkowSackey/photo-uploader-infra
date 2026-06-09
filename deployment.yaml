@@ -1,0 +1,17 @@
+template-file-path: infra/root.yml
+
+parameters:
+  EnvironmentName: prod
+  TemplatesBucket: fotos-cfn-templates-593793048595
+  TemplatesPrefix: templates
+  AppName: fotos
+  GitHubOrg: EkowSackey
+  GitHubRepo: photo-uploader-app
+
+tags:
+  - key: Environment
+    value: prod
+  - key: Project
+    value: fotos
+  - key: ManagedBy
+    value: CloudFormation-GitSync
