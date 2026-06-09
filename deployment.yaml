@@ -9,9 +9,6 @@ parameters:
   GitHubRepo: photo-uploader-app
 
 tags:
-  - key: Environment
-    value: prod
-  - key: Project
-    value: fotos
-  - key: ManagedBy
-    value: CloudFormation-GitSync
+  Environment: prod
+  Project: fotos
+  ManagedBy: CloudFormation-GitSync
