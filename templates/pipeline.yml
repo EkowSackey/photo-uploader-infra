@@ -188,7 +188,7 @@ Resources:
                 AppSpecTemplateArtifact: DeployBundleArtifact
                 AppSpecTemplatePath: appspec.yaml
                 Image1ArtifactName: ECRImageArtifact
-                Image1ContainerName: app
+                Image1ContainerName: IMAGE1_NAME
               InputArtifacts:
                 - Name: ECRImageArtifact
                 - Name: DeployBundleArtifact
