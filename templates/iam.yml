@@ -285,6 +285,10 @@ Resources:
                 Action:
                   - cloudformation:DescribeStacks
                 Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${EnvironmentName}-*/*'
+              - Effect: Allow
+                Action:
+                  - cloudformation:ListExports
+                Resource: '*'
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
