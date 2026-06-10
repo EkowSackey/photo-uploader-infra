@@ -173,6 +173,7 @@ Resources:
                   - codedeploy:CreateDeployment
                   - codedeploy:GetDeployment
                   - codedeploy:GetDeploymentConfig
+                  - codedeploy:GetApplication
                   - codedeploy:GetApplicationRevision
                   - codedeploy:RegisterApplicationRevision
                 Resource: '*'
