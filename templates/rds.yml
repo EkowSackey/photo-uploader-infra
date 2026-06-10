@@ -65,7 +65,7 @@ Resources:
       DBInstanceIdentifier: !Sub '${EnvironmentName}-fotos-db'
       DBName: fotosdb
       Engine: postgres
-      EngineVersion: '16.3'
+      EngineVersion: '16'
       DBInstanceClass: db.t3.micro
       AllocatedStorage: '20'
       StorageType: gp3
