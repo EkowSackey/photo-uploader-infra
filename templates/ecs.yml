@@ -123,7 +123,12 @@ Resources:
       TaskRoleArn: !Ref EcsTaskRoleArn
       ContainerDefinitions:
         - Name: app
-          Image: !Sub '${ECRRepositoryUri}:latest'
+          # Bootstrap placeholder — serves HTTP on :8080, satisfies the ALB health check.
+          # CodeDeploy replaces this with the real ECR image on the first pipeline run.
+          # No HealthCheck here: taskdef.json restores curl /actuator/health once the
+          # real app is deployed. The ALB target-group check is sufficient for CFN to
+          # consider the service stable during initial stack creation.
+          Image: public.ecr.aws/aws-containers/hello-app-runner:latest
           Essential: true
           PortMappings:
             - ContainerPort: 8080
@@ -146,14 +151,6 @@ Resources:
               ValueFrom: !Sub '${DBSecretArn}:username::'
             - Name: DB_PASSWORD
               ValueFrom: !Sub '${DBSecretArn}:password::'
-          HealthCheck:
-            Command:
-              - CMD-SHELL
-              - 'curl -f http://localhost:8080/actuator/health || exit 1'
-            Interval: 30
-            Timeout: 5
-            Retries: 3
-            StartPeriod: 60
           LogConfiguration:
             LogDriver: awslogs
             Options:

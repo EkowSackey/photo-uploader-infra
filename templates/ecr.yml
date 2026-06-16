@@ -64,6 +64,38 @@ Resources:
         - Key: Project
           Value: fotos
 
+  # ── Pipeline Artifacts Bucket ──────────────────────────────────────────────
+  # Placed in this Tier-0 stack so the prod-ArtifactsBucketName export exists
+  # before ECSStack and PipelineStack deploy. GitHub Actions reads this export
+  # on every push; having it available from the first deployment breaks the
+  # chicken-and-egg dependency with the pipeline stack.
+  ArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${EnvironmentName}-pipeline-artifacts-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireOldArtifacts
+            Status: Enabled
+            ExpirationInDays: 30
+            NoncurrentVersionExpirationInDays: 7
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: fotos
+
 Outputs:
   ECRRepositoryUri:
     Description: ECR repository URI
@@ -76,3 +108,9 @@ Outputs:
     Value: !Ref ECRRepository
     Export:
       Name: !Sub '${EnvironmentName}-ECRRepositoryName'
+
+  ArtifactsBucketName:
+    Description: Pipeline artifacts S3 bucket name
+    Value: !Ref ArtifactsBucket
+    Export:
+      Name: !Sub '${EnvironmentName}-ArtifactsBucketName'

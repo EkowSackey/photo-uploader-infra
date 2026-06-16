@@ -195,6 +195,7 @@ Resources:
         TargetGroupGreenName: !GetAtt ECSStack.Outputs.TargetGroupGreenName
         ALBListenerProdArn: !GetAtt ECSStack.Outputs.ALBListenerProdArn
         ALBListenerTestArn: !GetAtt ECSStack.Outputs.ALBListenerTestArn
+        ArtifactsBucketName: !GetAtt ECRStack.Outputs.ArtifactsBucketName
         CodeDeployRoleArn: !GetAtt IAMStack.Outputs.CodeDeployRoleArn
         CodePipelineRoleArn: !GetAtt IAMStack.Outputs.CodePipelineRoleArn
         EventBridgeRoleArn: !GetAtt IAMStack.Outputs.EventBridgeRoleArn

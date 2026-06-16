@@ -1,9 +1,10 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  CI/CD pipeline: S3 artifacts bucket, CodeDeploy application and deployment
-  group for ECS blue/green, CodePipeline with ECR + S3 sources and
-  CodeDeployToECS deploy stage, and an EventBridge rule that triggers the
-  pipeline whenever a new image is pushed to ECR.
+  CI/CD pipeline: CodeDeploy application and deployment group for ECS
+  blue/green, CodePipeline with ECR + S3 sources and CodeDeployToECS deploy
+  stage, and an EventBridge rule that triggers the pipeline whenever a new
+  image is pushed to ECR. The artifacts bucket is created in the ECR stack
+  (Tier 0) so its name is available before this stack deploys.
 
 Parameters:
   EnvironmentName:
@@ -55,35 +56,13 @@ Parameters:
     Type: String
     Description: EventBridge IAM role ARN
 
-Resources:
+  ArtifactsBucketName:
+    Type: String
+    Description: >
+      Name of the pipeline artifacts S3 bucket — created in the ECR stack so
+      it exists before GitHub Actions or this stack need it.
 
-  # ── Artifacts S3 Bucket ────────────────────────────────────────────────────
-  ArtifactsBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub '${EnvironmentName}-pipeline-artifacts-${AWS::AccountId}'
-      VersioningConfiguration:
-        Status: Enabled
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: AES256
-      LifecycleConfiguration:
-        Rules:
-          - Id: ExpireOldArtifacts
-            Status: Enabled
-            ExpirationInDays: 30
-            NoncurrentVersionExpirationInDays: 7
-      Tags:
-        - Key: Environment
-          Value: !Ref EnvironmentName
-        - Key: Project
-          Value: fotos
+Resources:
 
   # ── CodeDeploy Application ─────────────────────────────────────────────────
   CodeDeployApplication:
@@ -143,7 +122,7 @@ Resources:
       RoleArn: !Ref CodePipelineRoleArn
       ArtifactStore:
         Type: S3
-        Location: !Ref ArtifactsBucket
+        Location: !Ref ArtifactsBucketName
       Stages:
         - Name: Source
           Actions:
@@ -166,7 +145,7 @@ Resources:
                 Provider: S3
                 Version: '1'
               Configuration:
-                S3Bucket: !Ref ArtifactsBucket
+                S3Bucket: !Ref ArtifactsBucketName
                 S3ObjectKey: deploy-bundle/bundle.zip
                 PollForSourceChanges: 'false'
               OutputArtifacts:
@@ -226,12 +205,6 @@ Resources:
           RoleArn: !Ref EventBridgeRoleArn
 
 Outputs:
-  ArtifactsBucketName:
-    Description: Pipeline artifacts S3 bucket name
-    Value: !Ref ArtifactsBucket
-    Export:
-      Name: !Sub '${EnvironmentName}-ArtifactsBucketName'
-
   CodeDeployAppName:
     Description: CodeDeploy application name
     Value: !Ref CodeDeployApplication
