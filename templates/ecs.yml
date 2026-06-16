@@ -128,7 +128,7 @@ Resources:
           # No HealthCheck here: taskdef.json restores curl /actuator/health once the
           # real app is deployed. The ALB target-group check is sufficient for CFN to
           # consider the service stable during initial stack creation.
-          Image: public.ecr.aws/aws-containers/hello-app-runner:latest
+          Image: public.ecr.aws/docker/library/tomcat:10-jre17-temurin-alpine
           Essential: true
           PortMappings:
             - ContainerPort: 8080
@@ -192,7 +192,7 @@ Resources:
       Port: 8080
       TargetType: ip
       HealthCheckProtocol: HTTP
-      HealthCheckPath: /actuator/health
+      HealthCheckPath: /
       HealthCheckIntervalSeconds: 30
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 2
@@ -215,7 +215,7 @@ Resources:
       Port: 8080
       TargetType: ip
       HealthCheckProtocol: HTTP
-      HealthCheckPath: /actuator/health
+      HealthCheckPath: /
       HealthCheckIntervalSeconds: 30
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 2
