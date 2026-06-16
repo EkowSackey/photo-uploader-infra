@@ -123,12 +123,12 @@ Resources:
       TaskRoleArn: !Ref EcsTaskRoleArn
       ContainerDefinitions:
         - Name: app
-          # Bootstrap placeholder — serves HTTP on :8080, satisfies the ALB health check.
-          # CodeDeploy replaces this with the real ECR image on the first pipeline run.
-          # No HealthCheck here: taskdef.json restores curl /actuator/health once the
-          # real app is deployed. The ALB target-group check is sufficient for CFN to
-          # consider the service stable during initial stack creation.
-          Image: public.ecr.aws/docker/library/tomcat:10-jre17-temurin-alpine
+          Image: public.ecr.aws/docker/library/python:3-alpine
+          Command:
+            - python
+            - -m
+            - http.server
+            - '8080'
           Essential: true
           PortMappings:
             - ContainerPort: 8080
