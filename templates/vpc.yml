@@ -325,6 +325,38 @@ Resources:
       SecurityGroupIds:
         - !Ref VpcEndpointSG
 
+  # ── SSM Interface Endpoint ────────────────────────────────────────────────
+  # ECS tasks resolve SSM parameters at startup (DB endpoint, bucket name,
+  # etc.). Without this endpoint the call leaves via NAT gateway.
+  SSMEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ssm'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      SecurityGroupIds:
+        - !Ref VpcEndpointSG
+
+  # ── Secrets Manager Interface Endpoint ───────────────────────────────────
+  # ECS tasks fetch DB credentials from Secrets Manager at startup.
+  # Without this endpoint the call leaves via NAT gateway.
+  SecretsManagerEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.secretsmanager'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      SecurityGroupIds:
+        - !Ref VpcEndpointSG
+
 Outputs:
   VpcId:
     Description: VPC ID

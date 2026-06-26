@@ -9,6 +9,10 @@ Parameters:
     Type: String
     Description: Environment name prefix for resource naming
 
+  ArtifactsBucketName:
+    Type: String
+    Description: Artifacts bucket name — receives S3 server access logs from the photos bucket
+
 Resources:
 
   # ── S3 Photos Bucket 
@@ -23,6 +27,15 @@ Resources:
         RestrictPublicBuckets: true
       VersioningConfiguration:
         Status: Enabled
+      LoggingConfiguration:
+        DestinationBucketName: !Ref ArtifactsBucketName
+        LogFilePrefix: s3-access-logs/photos/
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireNoncurrentVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
@@ -78,7 +91,22 @@ Resources:
         - Key: Project
           Value: fotos
 
-  # ── Bucket Policy: CloudFront OAC only 
+  # ── SSM Parameters ────────────────────────────────────────────────────────
+  SSMPhotosBucketName:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/fotos/${EnvironmentName}/s3-bucket-name'
+      Type: String
+      Value: !Ref PhotosBucket
+
+  SSMCloudFrontUrl:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/fotos/${EnvironmentName}/cloudfront-url'
+      Type: String
+      Value: !Sub 'https://${CloudFrontDistribution.DomainName}'
+
+  # ── Bucket Policy: CloudFront OAC only
   PhotosBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:

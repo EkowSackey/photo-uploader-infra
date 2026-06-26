@@ -4,6 +4,8 @@ Description: >
   and ECS service using CodeDeploy blue/green deployment controller.
   ALB listener on port 80 forwards to blue TG; test listener on port 8080
   forwards to green TG during deployments.
+  All runtime config (DB endpoint, bucket name, etc.) is resolved from SSM
+  Parameter Store at task startup — no CI-time injection required.
 
 Parameters:
   EnvironmentName:
@@ -55,31 +57,15 @@ Parameters:
     Type: String
     Description: ECR repository URI (without tag)
 
-  DBEndpoint:
-    Type: String
-    Description: RDS endpoint hostname
-
-  DBPort:
-    Type: String
-    Description: RDS port
-    Default: '5432'
-
-  DBName:
-    Type: String
-    Description: Database name
-    Default: fotosdb
-
   DBSecretArn:
     Type: String
-    Description: Secrets Manager ARN for DB credentials
+    Description: >
+      Secrets Manager ARN for DB credentials. Used to resolve DB_USER and
+      DB_PASSWORD at task startup. All other config comes from SSM.
 
-  PhotosBucketName:
+  ArtifactsBucketName:
     Type: String
-    Description: S3 photos bucket name
-
-  CloudFrontDomainName:
-    Type: String
-    Description: CloudFront distribution domain name
+    Description: Artifacts S3 bucket name — used as the ALB access log destination
 
 Resources:
 
@@ -94,6 +80,14 @@ Resources:
           Value: !Ref EnvironmentName
         - Key: Project
           Value: fotos
+
+  # ── SSM Parameter: Log Group ──────────────────────────────────────────────
+  SSMLogGroupName:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/fotos/${EnvironmentName}/log-group-name'
+      Type: String
+      Value: !Ref AppLogGroup
 
   # ── ECS Cluster ────────────────────────────────────────────────────────────
   ECSCluster:
@@ -110,6 +104,9 @@ Resources:
           Value: fotos
 
   # ── ECS Task Definition ────────────────────────────────────────────────────
+  # Runtime config is pulled from SSM Parameter Store at task startup via the
+  # secrets array. DB credentials come from Secrets Manager directly using the
+  # secret ARN. The image here is overwritten by CodeDeploy at deploy time.
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
@@ -123,34 +120,40 @@ Resources:
       TaskRoleArn: !Ref EcsTaskRoleArn
       ContainerDefinitions:
         - Name: app
-          Image: public.ecr.aws/docker/library/python:3-alpine
-          Command:
-            - python
-            - -m
-            - http.server
-            - '8080'
+          Image: !Sub '${ECRRepositoryUri}:latest'
           Essential: true
+          StopTimeout: 45
           PortMappings:
             - ContainerPort: 8080
               Protocol: tcp
           Environment:
-            - Name: DB_HOST
-              Value: !Ref DBEndpoint
-            - Name: DB_PORT
-              Value: !Ref DBPort
-            - Name: DB_NAME
-              Value: !Ref DBName
-            - Name: S3_BUCKET_NAME
-              Value: !Ref PhotosBucketName
-            - Name: CLOUDFRONT_BASE_URL
-              Value: !Sub 'https://${CloudFrontDomainName}'
+            - Name: JAVA_TOOL_OPTIONS
+              Value: '-XX:MaxRAMPercentage=75.0'
             - Name: AWS_REGION
               Value: !Ref AWS::Region
+            - Name: DB_PORT
+              Value: '5432'
           Secrets:
+            - Name: DB_HOST
+              ValueFrom: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/fotos/${EnvironmentName}/db-endpoint'
+            - Name: DB_NAME
+              ValueFrom: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/fotos/${EnvironmentName}/db-name'
+            - Name: S3_BUCKET_NAME
+              ValueFrom: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/fotos/${EnvironmentName}/s3-bucket-name'
+            - Name: CLOUDFRONT_BASE_URL
+              ValueFrom: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/fotos/${EnvironmentName}/cloudfront-url'
             - Name: DB_USER
               ValueFrom: !Sub '${DBSecretArn}:username::'
             - Name: DB_PASSWORD
               ValueFrom: !Sub '${DBSecretArn}:password::'
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - curl -f http://localhost:8080/actuator/health || exit 1
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -176,6 +179,13 @@ Resources:
         - !Ref PublicSubnet2Id
       SecurityGroups:
         - !Ref AlbSgId
+      LoadBalancerAttributes:
+        - Key: access_logs.s3.enabled
+          Value: 'true'
+        - Key: access_logs.s3.bucket
+          Value: !Ref ArtifactsBucketName
+        - Key: access_logs.s3.prefix
+          Value: alb-logs
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
@@ -192,7 +202,7 @@ Resources:
       Port: 8080
       TargetType: ip
       HealthCheckProtocol: HTTP
-      HealthCheckPath: /
+      HealthCheckPath: /actuator/health
       HealthCheckIntervalSeconds: 30
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 2
@@ -215,7 +225,7 @@ Resources:
       Port: 8080
       TargetType: ip
       HealthCheckProtocol: HTTP
-      HealthCheckPath: /
+      HealthCheckPath: /actuator/health
       HealthCheckIntervalSeconds: 30
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 2

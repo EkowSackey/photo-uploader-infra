@@ -21,6 +21,10 @@ Parameters:
     Type: AWS::EC2::SecurityGroup::Id
     Description: RDS security group ID
 
+  RotationLambdaSgId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security group ID for the Secrets Manager rotation Lambda
+
 Resources:
 
   # ── DB Subnet Group ──────────────────
@@ -96,6 +100,44 @@ Resources:
       SecretId: !Ref DBSecret
       TargetId: !Ref DBInstance
       TargetType: AWS::RDS::DBInstance
+
+  # ── Secrets Manager Rotation Schedule ───
+  # AWS provisions and manages the rotation Lambda inside the VPC.
+  # It connects to RDS on port 5432 to rotate the password every 30 days.
+  DBSecretRotationSchedule:
+    Type: AWS::SecretsManager::RotationSchedule
+    DependsOn: SecretTargetAttachment
+    Properties:
+      SecretId: !Ref DBSecret
+      HostedRotationLambda:
+        RotationType: PostgreSQLSingleUser
+        RotationLambdaName: !Sub '${EnvironmentName}-fotos-db-rotation'
+        VpcSecurityGroupIds: !Ref RotationLambdaSgId
+        VpcSubnetIds: !Join [',', [!Ref DBSubnet1Id, !Ref DBSubnet2Id]]
+      RotationRules:
+        AutomaticallyAfterDays: 30
+
+  # ── SSM Parameters ────────────────────
+  SSMDBEndpoint:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/fotos/${EnvironmentName}/db-endpoint'
+      Type: String
+      Value: !GetAtt DBInstance.Endpoint.Address
+
+  SSMDBName:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/fotos/${EnvironmentName}/db-name'
+      Type: String
+      Value: fotosdb
+
+  SSMDBSecretArn:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/fotos/${EnvironmentName}/db-secret-arn'
+      Type: String
+      Value: !Ref DBSecret
 
 Outputs:
   DBEndpoint:

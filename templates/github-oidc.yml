@@ -1,0 +1,123 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  GitHub OIDC provider and GitHub Actions IAM role. Kept separate from
+  iam.yml because these are cross-boundary trust resources — they grant an
+  external system (GitHub) access to this AWS account, which is a different
+  concern from the application runtime roles in iam.yml.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Environment name prefix for resource naming
+
+  GitHubOrg:
+    Type: String
+    Description: GitHub organisation or username (e.g. EkowSackey)
+
+  GitHubRepo:
+    Type: String
+    Description: GitHub application repository name (e.g. photo-uploader-app)
+
+  CreateOIDCProvider:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: >
+      Set to false if a GitHub OIDC provider already exists in this account.
+      Only one OIDC provider per URL can exist per account.
+
+  ArtifactsBucketName:
+    Type: String
+    Description: Name of the pipeline artifacts S3 bucket (created in ECR stack)
+
+  ECRRepositoryName:
+    Type: String
+    Description: ECR repository name — used to scope the push permissions
+
+Conditions:
+  ShouldCreateOIDCProvider: !Equals [!Ref CreateOIDCProvider, 'true']
+
+Resources:
+
+  # ── GitHub OIDC Provider ───────────────────────────────────────────────────
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: ShouldCreateOIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: fotos
+
+  # ── GitHub Actions Role (OIDC) ─────────────────────────────────────────────
+  GitHubActionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${EnvironmentName}-github-actions-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com'
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                # Scoped to main branch only — prevents any other branch or
+                # fork from assuming this role and gaining AWS access.
+                token.actions.githubusercontent.com:sub: !Sub 'repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/main'
+      Policies:
+        - PolicyName: ECRPushAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ECRAuth
+                Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource: '*'
+              - Sid: ECRPush
+                Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:CompleteLayerUpload
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:DescribeRepositories
+                  - ecr:DescribeImages
+                Resource: !Sub 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ECRRepositoryName}'
+        - PolicyName: S3DeployConfigUpload
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:s3:::${ArtifactsBucketName}'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${ArtifactsBucketName}/*'
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: fotos
+
+Outputs:
+  GitHubActionsRoleArn:
+    Description: GitHub Actions OIDC Role ARN — set as AWS_ROLE_ARN secret in the app repo
+    Value: !GetAtt GitHubActionsRole.Arn
+    Export:
+      Name: !Sub '${EnvironmentName}-GitHubActionsRoleArn'

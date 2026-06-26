@@ -13,43 +13,7 @@ Parameters:
     Type: String
     Description: ARN of the S3 photos bucket
 
-  GitHubOrg:
-    Type: String
-    Description: GitHub organisation or user name (e.g. my-org)
-
-  GitHubRepo:
-    Type: String
-    Description: GitHub repository name (e.g. photo-uploader-app)
-
-  CreateOIDCProvider:
-    Type: String
-    Default: 'true'
-    AllowedValues: ['true', 'false']
-    Description: >
-      Set to false if a GitHub OIDC provider already exists in this account.
-      Only one OIDC provider per URL can exist per account.
-
-Conditions:
-  ShouldCreateOIDCProvider: !Equals [!Ref CreateOIDCProvider, 'true']
-
 Resources:
-
-  # ── GitHub OIDC Provider 
-  GitHubOIDCProvider:
-    Type: AWS::IAM::OIDCProvider
-    Condition: ShouldCreateOIDCProvider
-    Properties:
-      Url: https://token.actions.githubusercontent.com
-      ClientIdList:
-        - sts.amazonaws.com
-      ThumbprintList:
-        - 6938fd4d98bab03faadb97b34396831e3780aea1
-        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
-      Tags:
-        - Key: Environment
-          Value: !Ref EnvironmentName
-        - Key: Project
-          Value: fotos
 
   # ── ECS Task Execution Role
   EcsTaskExecutionRole:
@@ -74,6 +38,15 @@ Resources:
                 Action:
                   - secretsmanager:GetSecretValue
                 Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${EnvironmentName}/*'
+        - PolicyName: SSMParameterAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/fotos/${EnvironmentName}/*'
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
@@ -173,6 +146,7 @@ Resources:
                   - codedeploy:CreateDeployment
                   - codedeploy:GetDeployment
                   - codedeploy:GetDeploymentConfig
+                  - codedeploy:GetDeploymentGroup
                   - codedeploy:GetApplication
                   - codedeploy:GetApplicationRevision
                   - codedeploy:RegisterApplicationRevision
@@ -226,76 +200,6 @@ Resources:
         - Key: Project
           Value: fotos
 
-  # ── GitHub Actions Role (OIDC) 
-  GitHubActionsRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub '${EnvironmentName}-github-actions-role'
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Federated: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com'
-            Action: sts:AssumeRoleWithWebIdentity
-            Condition:
-              StringEquals:
-                token.actions.githubusercontent.com:aud: sts.amazonaws.com
-              StringLike:
-                token.actions.githubusercontent.com:sub: !Sub 'repo:${GitHubOrg}/${GitHubRepo}:*'
-      Policies:
-        - PolicyName: ECRPushAccess
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: ECRAuth
-                Effect: Allow
-                Action:
-                  - ecr:GetAuthorizationToken
-                Resource: '*'
-              - Sid: ECRPush
-                Effect: Allow
-                Action:
-                  - ecr:BatchCheckLayerAvailability
-                  - ecr:CompleteLayerUpload
-                  - ecr:InitiateLayerUpload
-                  - ecr:PutImage
-                  - ecr:UploadLayerPart
-                  - ecr:BatchGetImage
-                  - ecr:GetDownloadUrlForLayer
-                  - ecr:DescribeRepositories
-                  - ecr:DescribeImages
-                Resource: !Sub 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/*'
-        - PolicyName: S3DeployConfigUpload
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - s3:PutObject
-                  - s3:GetObject
-                  - s3:ListBucket
-                Resource:
-                  - !Sub 'arn:${AWS::Partition}:s3:::${EnvironmentName}-pipeline-artifacts-*'
-                  - !Sub 'arn:${AWS::Partition}:s3:::${EnvironmentName}-pipeline-artifacts-*/*'
-        - PolicyName: CloudFormationReadOutputs
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - cloudformation:DescribeStacks
-                Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${EnvironmentName}-*/*'
-              - Effect: Allow
-                Action:
-                  - cloudformation:ListExports
-                Resource: '*'
-      Tags:
-        - Key: Environment
-          Value: !Ref EnvironmentName
-        - Key: Project
-          Value: fotos
-
 Outputs:
   EcsTaskExecutionRoleArn:
     Description: ECS Task Execution Role ARN
@@ -327,8 +231,3 @@ Outputs:
     Export:
       Name: !Sub '${EnvironmentName}-EventBridgeRoleArn'
 
-  GitHubActionsRoleArn:
-    Description: GitHub Actions OIDC Role ARN
-    Value: !GetAtt GitHubActionsRole.Arn
-    Export:
-      Name: !Sub '${EnvironmentName}-GitHubActionsRoleArn'

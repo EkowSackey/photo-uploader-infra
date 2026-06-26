@@ -54,10 +54,12 @@ Resources:
 
   S3CloudFrontStack:
     Type: AWS::CloudFormation::Stack
+    DependsOn: ECRStack
     Properties:
       TemplateURL: !Sub 'https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}/s3-cloudfront.yml'
       Parameters:
         EnvironmentName: !Ref EnvironmentName
+        ArtifactsBucketName: !GetAtt ECRStack.Outputs.ArtifactsBucketName
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
@@ -99,9 +101,24 @@ Resources:
       Parameters:
         EnvironmentName: !Ref EnvironmentName
         PhotosBucketArn: !GetAtt S3CloudFrontStack.Outputs.PhotosBucketArn
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: !Ref AppName
+
+  GithubOIDCStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: ECRStack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}/github-oidc.yml'
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
         GitHubOrg: !Ref GitHubOrg
         GitHubRepo: !Ref GitHubRepo
         CreateOIDCProvider: !Ref CreateOIDCProvider
+        ArtifactsBucketName: !GetAtt ECRStack.Outputs.ArtifactsBucketName
+        ECRRepositoryName: !GetAtt ECRStack.Outputs.ECRRepositoryName
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
@@ -120,6 +137,7 @@ Resources:
         DBSubnet1Id: !GetAtt VPCStack.Outputs.DBSubnet1Id
         DBSubnet2Id: !GetAtt VPCStack.Outputs.DBSubnet2Id
         RdsSgId: !GetAtt SecurityGroupsStack.Outputs.RdsSgId
+        RotationLambdaSgId: !GetAtt SecurityGroupsStack.Outputs.RotationLambdaSgId
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
@@ -150,12 +168,8 @@ Resources:
         EcsTaskExecutionRoleArn: !GetAtt IAMStack.Outputs.EcsTaskExecutionRoleArn
         EcsTaskRoleArn: !GetAtt IAMStack.Outputs.EcsTaskRoleArn
         ECRRepositoryUri: !GetAtt ECRStack.Outputs.ECRRepositoryUri
-        DBEndpoint: !GetAtt RDSStack.Outputs.DBEndpoint
-        DBPort: !GetAtt RDSStack.Outputs.DBPort
-        DBName: !GetAtt RDSStack.Outputs.DBName
         DBSecretArn: !GetAtt RDSStack.Outputs.DBSecretArn
-        PhotosBucketName: !GetAtt S3CloudFrontStack.Outputs.PhotosBucketName
-        CloudFrontDomainName: !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName
+        ArtifactsBucketName: !GetAtt ECRStack.Outputs.ArtifactsBucketName
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
@@ -216,7 +230,7 @@ Outputs:
 
   GitHubActionsRoleArn:
     Description: IAM role ARN for GitHub Actions OIDC — set as AWS_ROLE_ARN secret
-    Value: !GetAtt IAMStack.Outputs.GitHubActionsRoleArn
+    Value: !GetAtt GithubOIDCStack.Outputs.GitHubActionsRoleArn
 
   CloudFrontDomainName:
     Description: CloudFront distribution domain

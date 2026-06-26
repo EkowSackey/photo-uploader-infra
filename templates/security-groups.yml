@@ -26,11 +26,6 @@ Resources:
           ToPort: 80
           CidrIp: 0.0.0.0/0
           Description: HTTP from internet
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: 0.0.0.0/0
-          Description: HTTPS from internet
       Tags:
         - Key: Name
           Value: !Sub '${EnvironmentName}-alb-sg'
@@ -59,11 +54,28 @@ Resources:
         - Key: Project
           Value: fotos
 
-  # ── RDS Security Group ─
+  # ── Secrets Manager Rotation Lambda Security Group ────────────────────────
+  # The hosted rotation Lambda runs inside the VPC and needs outbound access
+  # to the RDS instance on port 5432 and to the Secrets Manager VPC endpoint
+  # on port 443. No inbound rules are required.
+  RotationLambdaSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for the Secrets Manager rotation Lambda
+      VpcId: !Ref VpcId
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-rotation-lambda-sg'
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: fotos
+
+  # ── RDS Security Group ─────────────────────────────────────────────────────
   RdsSG:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow PostgreSQL port 5432 inbound from ECS tasks only
+      GroupDescription: Allow PostgreSQL port 5432 from ECS tasks and rotation Lambda
       VpcId: !Ref VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -71,6 +83,11 @@ Resources:
           ToPort: 5432
           SourceSecurityGroupId: !Ref EcsSG
           Description: PostgreSQL from ECS tasks
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref RotationLambdaSG
+          Description: PostgreSQL from rotation Lambda
       Tags:
         - Key: Name
           Value: !Sub '${EnvironmentName}-rds-sg'
@@ -97,3 +114,9 @@ Outputs:
     Value: !Ref RdsSG
     Export:
       Name: !Sub '${EnvironmentName}-RdsSgId'
+
+  RotationLambdaSgId:
+    Description: Secrets Manager rotation Lambda security group ID
+    Value: !Ref RotationLambdaSG
+    Export:
+      Name: !Sub '${EnvironmentName}-RotationLambdaSgId'

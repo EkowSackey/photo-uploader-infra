@@ -32,23 +32,9 @@ Resources:
             "rules": [
               {
                 "rulePriority": 1,
-                "description": "Expire untagged images after 1 day",
+                "description": "Keep last 10 images",
                 "selection": {
-                  "tagStatus": "untagged",
-                  "countType": "sinceImagePushed",
-                  "countUnit": "days",
-                  "countNumber": 1
-                },
-                "action": {
-                  "type": "expire"
-                }
-              },
-              {
-                "rulePriority": 2,
-                "description": "Keep last 10 tagged images",
-                "selection": {
-                  "tagStatus": "tagged",
-                  "tagPrefixList": ["v", "latest", "sha"],
+                  "tagStatus": "any",
                   "countType": "imageCountMoreThan",
                   "countNumber": 10
                 },
@@ -95,6 +81,37 @@ Resources:
           Value: !Ref EnvironmentName
         - Key: Project
           Value: fotos
+
+  # ── SSM Parameter ─────────────────────────────────────────────────────────
+  SSMArtifactsBucketName:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/fotos/${EnvironmentName}/artifacts-bucket-name'
+      Type: String
+      Value: !Ref ArtifactsBucket
+
+  # ── ALB Access Log Bucket Policy ──────────────────────────────────────────
+  # Grants the regional ELB service account permission to write ALB access
+  # logs into the artifacts bucket under the alb-logs/ prefix.
+  ArtifactsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ArtifactsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowALBAccessLogs
+            Effect: Allow
+            Principal:
+              Service: logdelivery.elasticloadbalancing.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub '${ArtifactsBucket.Arn}/alb-logs/*'
+          - Sid: AllowS3AccessLogs
+            Effect: Allow
+            Principal:
+              Service: logging.s3.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub '${ArtifactsBucket.Arn}/s3-access-logs/*'
 
 Outputs:
   ECRRepositoryUri:
