@@ -109,6 +109,14 @@ Resources:
                 Resource:
                   - !Sub 'arn:${AWS::Partition}:s3:::${ArtifactsBucketName}'
                   - !Sub 'arn:${AWS::Partition}:s3:::${ArtifactsBucketName}/*'
+        - PolicyName: SSMReadForDeploy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/fotos/*'
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
