@@ -137,7 +137,6 @@ Resources:
         DBSubnet1Id: !GetAtt VPCStack.Outputs.DBSubnet1Id
         DBSubnet2Id: !GetAtt VPCStack.Outputs.DBSubnet2Id
         RdsSgId: !GetAtt SecurityGroupsStack.Outputs.RdsSgId
-        RotationLambdaSgId: !GetAtt SecurityGroupsStack.Outputs.RotationLambdaSgId
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
