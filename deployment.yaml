@@ -2,7 +2,7 @@ template-file-path: infra/root.yml
 
 parameters:
   EnvironmentName: prod
-  TemplatesBucket: fotos-cfn-templates-593793048595
+  TemplatesBucket: fotos-cfn-templates
   TemplatesPrefix: templates
   AppName: fotos
   GitHubOrg: EkowSackey
