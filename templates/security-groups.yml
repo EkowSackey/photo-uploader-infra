@@ -54,47 +54,6 @@ Resources:
         - Key: Project
           Value: fotos
 
-  # ── Secrets Manager Rotation Lambda Security Group ────────────────────────
-  # The hosted rotation Lambda runs inside the VPC and needs outbound access
-  # to the RDS instance on port 5432 and to the Secrets Manager VPC endpoint
-  # on port 443. No inbound rules are required.
-  RotationLambdaSG:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Security group for the Secrets Manager rotation Lambda
-      VpcId: !Ref VpcId
-      Tags:
-        - Key: Name
-          Value: !Sub '${EnvironmentName}-rotation-lambda-sg'
-        - Key: Environment
-          Value: !Ref EnvironmentName
-        - Key: Project
-          Value: fotos
-
-  # ── RDS Security Group ─────────────────────────────────────────────────────
-  RdsSG:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Allow PostgreSQL port 5432 from ECS tasks and rotation Lambda
-      VpcId: !Ref VpcId
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 5432
-          ToPort: 5432
-          SourceSecurityGroupId: !Ref EcsSG
-          Description: PostgreSQL from ECS tasks
-        - IpProtocol: tcp
-          FromPort: 5432
-          ToPort: 5432
-          SourceSecurityGroupId: !Ref RotationLambdaSG
-          Description: PostgreSQL from rotation Lambda
-      Tags:
-        - Key: Name
-          Value: !Sub '${EnvironmentName}-rds-sg'
-        - Key: Environment
-          Value: !Ref EnvironmentName
-        - Key: Project
-          Value: fotos
 
 Outputs:
   AlbSgId:
